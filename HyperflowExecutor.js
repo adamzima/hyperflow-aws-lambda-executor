@@ -1,18 +1,24 @@
 var spawn = require('child_process').spawn;
 var AWS = require('aws-sdk');
 var async = require('async');
-var s3 = new AWS.S3();
+var s3 = new AWS.S3({ signatureVersion: 'v4' });
 
 var bucket = 'montage-lambda';
 
-exports.handler = function (req, context) {
+exports.handler = function (event, context, callback) {
 
-  var executable = req.body.executable;
-  var args = req.body.args;
-  var inputs = req.body.inputs;
-  var outputs = req.body.outputs;
-  var bucket_name = req.body.options.bucket;
-  var prefix = req.body.options.prefix;
+  json_request = JSON.parse(event.body);
+
+  var executable = json_request.executable;
+  var args = json_request.args;
+  var inputs = json_request.inputs;
+  var outputs = json_request.outputs;
+
+  console.log("Executable: " + executable);
+  console.log("Args: " + args);
+
+  var bucket_name = json_request.options.bucket;
+  var prefix = json_request.options.prefix;
 
   var t_start = Date.now();
   var t_end;
@@ -41,18 +47,18 @@ exports.handler = function (req, context) {
         Key: prefix + '/' + file_name
       };
 
+      var file = require('fs').createWriteStream('/tmp/' + file_name);
+
       // Download a file from your bucket.
-      s3.getObject(params, function (err, data) {
-        if (err) {
-          console.error("Error downloading file " + full_path);
-          callback(err);
-        } else {
-          var file = require('fs').createWriteStream('/tmp/' + file_name);
-          data.createReadStream().pipe(file);
-          console.log("Downloaded file " + full_path);
-          callback();
-        }
-      });
+
+      var err;
+
+      s3.getObject(params).createReadStream().on('error', function(err) {
+        console.error("Error downloading file " + full_path);
+        err = err;
+      }).pipe(file);
+
+      callback(err);
     }, function (err) {
       if (err) {
         console.error('A file failed to process');
@@ -109,7 +115,7 @@ exports.handler = function (req, context) {
       var params = {
         Bucket: bucket,
         Key: prefix + '/' + file_name,
-        Data: '/tmp/' + file_name
+        Body: '/tmp/' + file_name
       };
 
       // Upload a file to your bucket.
@@ -141,12 +147,12 @@ exports.handler = function (req, context) {
   ], function (err, result) {
     if (err) {
       console.error('Error: ' + err);
-      res.status(400).send('Bad Request ' + JSON.stringify(code));
+      callback('[BadRequest] ' + err);
     } else {
       console.log('Success');
       t_end = Date.now();
       var duration = t_end - t_start;
-      res.send('AWS Lambda Function exit: start ' + t_start + ' end ' + t_end + ' duration ' + duration + ' ms, executable: ' + executable + ' args: ' + args);
+      callback(null, 'AWS Lambda Function exit: start ' + t_start + ' end ' + t_end + ' duration ' + duration + ' ms, executable: ' + executable + ' args: ' + args);
     }
   })
 };
