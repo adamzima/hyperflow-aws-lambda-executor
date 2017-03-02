@@ -1,0 +1,3 @@
+module.exports = {
+  body: '{"executable":"mBgModel","args":["-i","100000","pimages_20161211_103123_2443.tbl","fits.tbl","corrections.tbl"],"env":{},"inputs":[{"name":"fits.tbl","_id":183,"source":78,"firingId":1,"sigIdx":1},{"name":"pimages_20161211_103123_2443.tbl","_id":"184","id":"184","sigIdx":1}],"outputs":[{"name":"corrections.tbl","status":"not_ready","uri":"/apps/50/sigs/185"}],"options":{"storage":"s3","bucket":"montage-lambda","prefix":"data/0.4"}}'
+};
