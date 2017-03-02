@@ -1,18 +1,13 @@
-/*
-1. Puscic wieksze
-2. Pomierzyc czasy download / execute / upload
- */
-
 var spawn = require('child_process').spawn;
+var exec = require('child_process').exec;
+
 var AWS = require('aws-sdk');
 var async = require('async');
 var s3 = new AWS.S3({ signatureVersion: 'v4' });
 var bucket = 'montage-lambda';
 var Promise = require('bluebird');
-var lambda_response = require('aws-lambda-response').default;
 
 exports.handler = function (event, context, callback) {
-
   var printDir = function(p) {
     var fs = require("fs"),
       path = require("path");
@@ -57,8 +52,12 @@ exports.handler = function (event, context, callback) {
   var bucket_name = json_request.options.bucket;
   var prefix = json_request.options.prefix;
 
-  var t_start = Date.now();
-  var t_end;
+  var total_start = Date.now();
+  var total_end;
+
+  var download_start;
+  var execute_start;
+  var upload_start;
 
   console.log('executable: ' + executable);
   console.log('args:       ' + args);
@@ -68,9 +67,14 @@ exports.handler = function (event, context, callback) {
   console.log('bucket:     ' + bucket_name);
   console.log('prefix:     ' + prefix);
 
+  function clearTmp(callback) {
+    exec('rm ./tmp/*', function (err, stdout, stderr) {
+      callback();
+    });
+  }
 
   function download(callback) {
-
+    download_start = Date.now();
     async.each(inputs, function (file_name, callback) {
       file_name = file_name.name;
       var full_path = bucket_name + "/" + prefix + "/" + file_name;
@@ -82,7 +86,7 @@ exports.handler = function (event, context, callback) {
         Key: prefix + '/' + file_name
       };
 
-      var file = require('fs').createWriteStream('/tmp/' + file_name);
+      var file = require('fs').createWriteStream('./tmp/' + file_name);
 
       // TODO: Check more efficient way
       // Download a file from your bucket.
@@ -95,14 +99,14 @@ exports.handler = function (event, context, callback) {
         console.log("Done");
         callback();
       }, function(err) {
+        err['file_name'] = file_name;
         callback(err);
       });
-      console.log("Download main loop finished.");
     }, function (err) {
       console.log("Callback!");
       if (err) {
-        console.error('A file failed to process');
-        callback('Error downloading')
+        console.log('A file failed to process ' + err.file_name);
+        callback('Error downloading ' + err);
       } else {
         console.log('All files have been downloaded successfully');
         callback();
@@ -113,6 +117,7 @@ exports.handler = function (event, context, callback) {
 
 
   function execute(callback) {
+    execute_start = Date.now();
     var proc_name = __dirname + '/' + executable // use __dirname so we don't need to set env[PATH] and pass env
 
     console.log('spawning ' + proc_name);
@@ -146,6 +151,7 @@ exports.handler = function (event, context, callback) {
   }
 
   function upload(callback) {
+    upload_start = Date.now();
     async.each(outputs, function (file_name, callback) {
 
       file_name = file_name.name
@@ -189,6 +195,7 @@ exports.handler = function (event, context, callback) {
   }
 
   async.waterfall([
+    clearTmp,
     download,
     execute,
     upload
@@ -204,14 +211,24 @@ exports.handler = function (event, context, callback) {
       };
     } else {
       console.log('Success');
-      t_end = Date.now();
-      var duration = t_end - t_start;
-      var message = 'AWS Lambda Function exit: start ' + t_start + ' end ' + t_end + ' duration ' + duration + ' ms, executable: ' + executable + ' args: ' + args;
+      total_end = Date.now();
+
+      var duration = total_end - total_start;
+      var download_duration = execute_start - download_start;
+      var execution_duration = upload_start - execute_start;
+      var upload_duration = total_end - upload_start;
+
+      var message = 'AWS Lambda Function exit: start ' + total_start + ' end ' + total_end + ' duration ' + duration + ' ms, executable: ' + executable + ' args: ' + args;
+      message += ' download time: ' + download_duration + ' ms, execution time: ' + execution_duration + ' ms, upload time ' + upload_duration + ' ms';
+
       var body = {
         message: message,
         duration: duration,
         executable: executable,
-        args: args
+        args: args,
+        download_duration: download_duration,
+        execution_duration: execution_duration,
+        upload_duration: upload_duration
       };
 
       response = {
